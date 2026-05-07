@@ -1,0 +1,114 @@
+name: "Desktop Debug Build"
+
+# Manually triggered debug build for the desktop app.
+# Produces unsigned, debug-mode binaries and uploads them as workflow artifacts
+# so downstream testers can download a build without needing CN/signing secrets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Build target"
+        required: true
+        default: "aarch64-apple-darwin"
+        type: choice
+        options:
+          - aarch64-apple-darwin
+          - x86_64-apple-darwin
+          - x86_64-pc-windows-msvc
+      bundle:
+        description: "Produce installable bundle (.dmg / .msi)"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build:
+    name: Build (${{ github.event.inputs.target }})
+    runs-on: >-
+      ${{ startsWith(github.event.inputs.target, 'aarch64-apple-darwin') && 'macos-latest' ||
+          startsWith(github.event.inputs.target, 'x86_64-apple-darwin') && 'macos-13' ||
+          'windows-2022' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ github.event.inputs.target }}
+
+      - uses: ./.github/actions/setup-rust-cache
+        with:
+          target: ${{ github.event.inputs.target }}
+
+      - uses: ./.github/actions/setup-js
+
+      # Minimal .env so the build doesn't choke on missing optional vars.
+      # We do NOT inject NEXT_PUBLIC_WEB_URL here so that the desktop app uses
+      # the user-configured server_url at runtime (the path under test).
+      - name: Create .env
+        shell: bash
+        run: |
+          cat > .env <<'EOF'
+          VITE_ENVIRONMENT=development
+          CAP_DESKTOP_SENTRY_URL=
+          NEXT_PUBLIC_WEB_URL=https://cap.so
+          NEXTAUTH_URL=https://cap.so
+          NEXT_PUBLIC_POSTHOG_KEY=
+          NEXT_PUBLIC_POSTHOG_HOST=
+          VITE_POSTHOG_KEY=
+          VITE_POSTHOG_HOST=
+          VITE_SERVER_URL=https://cap.so
+          EOF
+          cp .env apps/desktop/.env
+
+      - name: Run cap-setup
+        shell: bash
+        run: pnpm -w cap-setup
+        env:
+          RUST_TARGET_TRIPLE: ${{ github.event.inputs.target }}
+
+      - name: Build cap-muxer sidecar
+        shell: bash
+        run: ./scripts/build-cap-muxer.sh ${{ github.event.inputs.target }}
+
+      - name: Build app (no bundle)
+        if: ${{ github.event.inputs.bundle != 'true' }}
+        working-directory: apps/desktop
+        run: pnpm tauri build --debug --target ${{ github.event.inputs.target }} --no-bundle
+        env:
+          RUST_TARGET_TRIPLE: ${{ github.event.inputs.target }}
+
+      - name: Build app (with bundle, unsigned)
+        if: ${{ github.event.inputs.bundle == 'true' }}
+        working-directory: apps/desktop
+        run: pnpm tauri build --debug --target ${{ github.event.inputs.target }}
+        env:
+          RUST_TARGET_TRIPLE: ${{ github.event.inputs.target }}
+          # Skip code signing / notarization
+          APPLE_SIGNING_IDENTITY: ""
+          APPLE_CERTIFICATE: ""
+          APPLE_ID: ""
+
+      - name: Collect binaries
+        shell: bash
+        run: |
+          mkdir -p out
+          set +e
+          # Common Tauri output locations
+          find target/${{ github.event.inputs.target }}/debug -maxdepth 1 -type f \
+            \( -name "Cap" -o -name "Cap.exe" -o -name "cap" -o -name "cap.exe" \) \
+            -exec cp -v {} out/ \;
+          find target/${{ github.event.inputs.target }}/debug/bundle -type f \
+            \( -name "*.dmg" -o -name "*.app.tar.gz" -o -name "*.msi" -o -name "*.exe" -o -name "*.app" \) \
+            -exec cp -rv {} out/ \; 2>/dev/null
+          ls -la out/ || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cap-desktop-debug-${{ github.event.inputs.target }}
+          path: out/**
+          if-no-files-found: warn
+          retention-days: 14

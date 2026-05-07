@@ -50,6 +50,7 @@ import {
 	createOptionsQuery,
 	createOrganizationsQuery,
 } from "~/utils/queries";
+import { handleRecordingResult } from "~/utils/recording";
 import {
 	type CameraInfo,
 	commands,
@@ -1749,11 +1750,33 @@ function RecordingControls(props: {
 									return;
 								}
 
-								commands.startRecording({
-									capture_target: props.target,
+								// [debug/selfhost-instant-mode] Surface errors from Rust instead of
+								// silently dropping the promise. Self-hosted Instant Mode failures
+								// (e.g. 4xx from /api/desktop/video/create) were invisible because
+								// the call was fire-and-forget. Log inputs + delegate to the shared
+								// handler so the user gets a dialog/toast on failure.
+								console.log("[startRecording] invoking", {
 									mode: rawOptions.mode,
-									capture_system_audio: rawOptions.captureSystemAudio,
+									captureTarget: props.target,
+									captureSystemAudio: rawOptions.captureSystemAudio,
+									serverUrl: generalSetings.data?.serverUrl,
+									hasAuth: !!auth.data,
 								});
+								const _recordingPromise = commands
+									.startRecording({
+										capture_target: props.target,
+										mode: rawOptions.mode,
+										capture_system_audio: rawOptions.captureSystemAudio,
+									})
+									.then((r) => {
+										console.log("[startRecording] result", r);
+										return r;
+									})
+									.catch((e) => {
+										console.error("[startRecording] failed", e);
+										throw e;
+									});
+								handleRecordingResult(_recordingPromise, setOptions);
 							}}
 						>
 							<div
