@@ -273,6 +273,10 @@ jobs:
 
       - run: node scripts/setup.js
 
+      - name: Build cap-muxer sidecar
+        shell: bash
+        run: ./scripts/build-cap-muxer.sh ${{ matrix.settings.target }}
+
       - name: Build debug
         run: cargo build --all
 
