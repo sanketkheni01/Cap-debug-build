@@ -96,14 +96,25 @@ jobs:
         run: |
           mkdir -p out
           set +e
-          # Common Tauri output locations
-          find target/${{ github.event.inputs.target }}/debug -maxdepth 1 -type f \
-            \( -name "Cap" -o -name "Cap.exe" -o -name "cap" -o -name "cap.exe" \) \
-            -exec cp -v {} out/ \;
-          find target/${{ github.event.inputs.target }}/debug/bundle -type f \
-            \( -name "*.dmg" -o -name "*.app.tar.gz" -o -name "*.msi" -o -name "*.exe" -o -name "*.app" \) \
-            -exec cp -rv {} out/ \; 2>/dev/null
-          ls -la out/ || true
+          # Common Tauri output locations. In this repo Tauri writes under
+          # apps/desktop/src-tauri/target, not the repository root target dir.
+          for base in \
+            target/${{ github.event.inputs.target }}/debug \
+            apps/desktop/src-tauri/target/${{ github.event.inputs.target }}/debug \
+            apps/desktop/target/${{ github.event.inputs.target }}/debug
+          do
+            echo "checking $base"
+            [ -d "$base" ] || continue
+            find "$base" -maxdepth 2 -type f \
+              \( -name "Cap" -o -name "Cap.exe" -o -name "cap" -o -name "cap.exe" \) \
+              -exec cp -v {} out/ \;
+            find "$base/bundle" -type f \
+              \( -name "*.dmg" -o -name "*.app.tar.gz" -o -name "*.msi" -o -name "*.exe" -o -name "*.app" \) \
+              -exec cp -rv {} out/ \; 2>/dev/null
+          done
+          echo "Collected artifacts:"
+          find out -maxdepth 3 -type f -ls || true
+          test -n "$(find out -type f -print -quit)"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
