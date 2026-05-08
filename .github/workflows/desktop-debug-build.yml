@@ -10,11 +10,9 @@ on:
       target:
         description: "Build target"
         required: true
-        default: "aarch64-apple-darwin"
+        default: "x86_64-pc-windows-msvc"
         type: choice
         options:
-          - aarch64-apple-darwin
-          - x86_64-apple-darwin
           - x86_64-pc-windows-msvc
       bundle:
         description: "Produce installable bundle (.dmg / .msi)"
@@ -25,10 +23,7 @@ on:
 jobs:
   build:
     name: Build (${{ github.event.inputs.target }})
-    runs-on: >-
-      ${{ startsWith(github.event.inputs.target, 'aarch64-apple-darwin') && 'macos-latest' ||
-          startsWith(github.event.inputs.target, 'x86_64-apple-darwin') && 'macos-13' ||
-          'windows-2022' }}
+    runs-on: windows-2022
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
